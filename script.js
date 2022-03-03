@@ -57,8 +57,8 @@ const canvas = document.getElementsByTagName('canvas')[0];
 resizeCanvas();
 
 let config = {
-    SIM_RESOLUTION: 128,
-    DYE_RESOLUTION: 1024,
+    SIM_RESOLUTION: 128, // 场的点，控制点
+    DYE_RESOLUTION: 1024, // 实际点？影响清晰度
     CAPTURE_RESOLUTION: 512,
     DENSITY_DISSIPATION: 1,
     VELOCITY_DISSIPATION: 0.2,
@@ -979,14 +979,31 @@ const gradienSubtractProgram = new Program(baseVertexShader, gradientSubtractSha
 
 const displayMaterial = new Material(baseVertexShader, displayShaderSource);
 
+
+/*
+  初始化buffer
+  分别包括 
+  1、5个FBO
+    ① dye             DoubleFBO
+    ② velocity    速度 DoubleFBO
+    ③ divergence  散度 FBO
+    ④ curl        旋度 FBO
+    ⑤ pressure    压力 DoubleFBO
+  
+  2、两个效果
+    ① initBloomFramebuffers 发散
+    ② initSunraysFramebuffers 阳光散射
+
+ */
 function initFramebuffers () {
     let simRes = getResolution(config.SIM_RESOLUTION);
     let dyeRes = getResolution(config.DYE_RESOLUTION);
 
-    const texType = ext.halfFloatTexType;
-    const rgba    = ext.formatRGBA;
-    const rg      = ext.formatRG;
-    const r       = ext.formatR;
+    console.log('%c 🍫 ext: ', 'font-size:20px;background-color: #F5CE50;color:#fff;', ext);
+    const texType = ext.halfFloatTexType; // 16（也称为半浮点）和32位浮点组件的纹理格式
+    const rgba    = ext.formatRGBA;       // 格式
+    const rg      = ext.formatRG;         // 格式
+    const r       = ext.formatR;          // 格式
     const filtering = ext.supportLinearFiltering ? gl.LINEAR : gl.NEAREST;
 
     gl.disable(gl.BLEND);
@@ -1043,22 +1060,60 @@ function initSunraysFramebuffers () {
 }
 
 function createFBO (w, h, internalFormat, format, type, param) {
-    gl.activeTexture(gl.TEXTURE0);
-    let texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, param);
+    gl.activeTexture(gl.TEXTURE0); // 用来激活指定的纹理单元。
+    let texture = gl.createTexture(); // 创建纹理
+    gl.bindTexture(gl.TEXTURE_2D, texture);// 将给定的 WebGLTexture 绑定到目标（绑定点）。
+    /* 
+      texParameteri 第一个参数target。gl.TEXTURE_2D,二维纹理|gl.TEXTURE_CUBE_MAP,立方体贴图纹理。
+      texParameteri 第二个参数pname。pname参数是一个指定要设置的纹理参数的格GL枚举。param参数是一个GLfloat或GLint，用于指定指定参数pname的值。
+        gl.TEXTURE_MIN_FILTER 纹理缩小滤波器，
+          值：gl.LINEAR, gl.NEAREST, 
+             gl.NEAREST_MIPMAP_NEAREST, gl.LINEAR_MIPMAP_NEAREST, 
+             gl.NEAREST_MIPMAP_LINEAR (default value), gl.LINEAR_MIPMAP_LINEAR.
+        gl.TEXTURE_MAG_FILTER 纹理放大滤波器，值：gl.LINEAR (default value), gl.NEAREST.
+      
+        gl.TEXTURE_WRAP_S 纹理坐标s的包裹函数,
+          值：gl.REPEAT (default value),gl.CLAMP_TO_EDGE, gl.MIRRORED_REPEAT.
+        gl.TEXTURE_WRAP_T纹理坐标t的包裹函数
+          值：gl.REPEAT (default value),gl.CLAMP_TO_EDGE, gl.MIRRORED_REPEAT.
+
+    */
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, param); // set texture parameters.
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, param);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    // 指定二维纹理图像。
     gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, w, h, 0, format, type, null);
 
     let fbo = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+    /*
+      参数①target，gl枚举，绑定点（目标）
+        gl.FRAMEBUFFER 收集缓冲区用于渲染图像的颜色、alpha、深度和模板缓冲区的数据存储。
+
+        当使用WebGL 2 context,可选
+        gl.DRAW_FRAMEBUFFER 用作绘图、渲染、清除和写入操作的目标。
+        gl.READ_FRAMEBUFFER 用作读取操作的源。
+
+      参数②attachment，指定纹理附着点的对象指定纹理附着点的GL枚举
+        gl.COLOR_ATTACHMENT0 将纹理附加到帧缓冲区的颜色缓冲区。
+      参数③textarget指定纹理类型的GL枚举
+      参数④texture纹理对象
+      参数⑤level,指定要附加的纹理图像的mipmap级别的闪烁。必须是0。
+     */
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0); //将纹理附加到WebGLFramebuffer。
+    // gl.viewport 设置视口，它指定x和y从标准化设备坐标到窗口坐标的仿射变换。
     gl.viewport(0, 0, w, h);
+
+    /* 
+      gl.clear将缓冲区清除为预设值。
+      参数①mask,一种GLbitfield按位或掩码，指示要清除的缓冲区,可能值gl.COLOR_BUFFER_BIT、gl.DEPTH_BUFFER_BIT、gl.STENCIL_BUFFER_BIT
+    */
+
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    let texelSizeX = 1.0 / w;
+    let texelSizeX = 1.0 / w; // 纹理像素比利
     let texelSizeY = 1.0 / h;
 
     return {
@@ -1076,7 +1131,23 @@ function createFBO (w, h, internalFormat, format, type, param) {
     };
 }
 
+/**
+ * 
+ * @param {number} w 宽高
+ * @param {number} h 宽高
+ * @param {number} internalFormat 内部格式
+ * @param {number} format formatR
+ * @param {number} type 纹理格式
+ * @param {number} param 是否支持线型滤波
+ * @returns {
+ *  width: number 宽
+ *  height: number 高
+ *  texelSizeX： number
+ * texelSizeY: number
+ * }
+ */
 function createDoubleFBO (w, h, internalFormat, format, type, param) {
+  console.log('%c 🥛 w, h, internalFormat, format, type, param: ', 'font-size:20px;background-color: #FFDD4D;color:#fff;', w, h, internalFormat, format, type, param);
     let fbo1 = createFBO(w, h, internalFormat, format, type, param);
     let fbo2 = createFBO(w, h, internalFormat, format, type, param);
 
@@ -1294,7 +1365,7 @@ function step (dt) {
 }
 
 function render (target) {
-    if (config.BLOOM)
+    if (config.BLOOM) // 爆炸扩散
         applyBloom(dye.read, bloom);
     if (config.SUNRAYS) {
         applySunrays(dye.read, dye.write, sunrays);
@@ -1609,14 +1680,20 @@ function wrap (value, min, max) {
     return (value - min) % range + min;
 }
 
+/**
+ * 
+ * @param {*} resolution 
+ * @brief 等比例 获取宽高
+ * @returns 
+ */
 function getResolution (resolution) {
+  console.log('%c 🍇 gl.drawingBufferWidth: ', 'font-size:20px;background-color: #2EAFB0;color:#fff;', gl.drawingBufferWidth,gl.drawingBufferHeight,resolution);
     let aspectRatio = gl.drawingBufferWidth / gl.drawingBufferHeight;
     if (aspectRatio < 1)
         aspectRatio = 1.0 / aspectRatio;
 
     let min = Math.round(resolution);
     let max = Math.round(resolution * aspectRatio);
-
     if (gl.drawingBufferWidth > gl.drawingBufferHeight)
         return { width: max, height: min };
     else
